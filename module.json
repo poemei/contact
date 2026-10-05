@@ -1,7 +1,7 @@
 {
     "name": "Contact",
     "module": "contact",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "description": "A website contact utility module that uses the Chaos MVC built-in mailer to capture and manage contacts from the domain.",
     "update_url": "https://poemei.com/projects/modules/contact/module.json",
     "creator": "PM",
