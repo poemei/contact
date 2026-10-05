@@ -23,9 +23,18 @@ require APPROOT . '/views/inc/head.php';
         <form method="post" class="card border-secondary p-4">
             <?= $this->csrf_field() ?>
 
-            <div aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;">
+            <div
+                aria-hidden="true"
+                style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;"
+            >
                 <label for="contact-website">Website</label>
-                <input id="contact-website" type="text" name="website" tabindex="-1" autocomplete="off">
+                <input
+                    id="contact-website"
+                    type="text"
+                    name="website"
+                    tabindex="-1"
+                    autocomplete="off"
+                >
             </div>
 
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 20px;">
@@ -33,6 +42,7 @@ require APPROOT . '/views/inc/head.php';
                     <label for="contact-name">Name</label>
                     <input id="contact-name" type="text" name="name" class="form-control border-secondary" required>
                 </div>
+
                 <div class="mb-3">
                     <label for="contact-email">Email</label>
                     <input id="contact-email" type="email" name="email" class="form-control border-secondary" required>
@@ -59,10 +69,10 @@ require APPROOT . '/views/inc/head.php';
             <div class="mb-3">
                 <label for="contact-message">Message</label>
                 <textarea id="contact-message" name="message" class="form-control border-secondary" rows="6" required></textarea>
-                <small>Links are not permitted in contact submissions.</small>
+                <div class="form-text">Links are not permitted in contact submissions.</div>
             </div>
 
-            <button class="btn btn-outline-primary">Send Inquiry</button>
+            <button type="submit" class="btn btn-outline-primary">Send Inquiry</button>
         </form>
     <?php endif; ?>
 </div>
