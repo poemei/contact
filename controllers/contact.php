@@ -39,6 +39,14 @@ class contact extends controller
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $this->require_csrf();
 
+            $honeypot = trim((string) ($_POST['website'] ?? ''));
+
+            if ($honeypot !== '') {
+                // Deliberately appear successful. Do not store or send anything.
+                header('Location: /contact?sent=1');
+                exit;
+            }
+
             if (!$available) {
                 http_response_code(503);
                 $this->view(
@@ -76,6 +84,31 @@ class contact extends controller
                     ]
                 );
                 return;
+            }
+
+            if (
+                $this->contains_url($name)
+                || $this->contains_url($subject)
+                || $this->contains_url($message)
+            ) {
+                $this->reject_public_submission(
+                    $departments,
+                    'Links are not permitted in contact submissions.'
+                );
+            }
+
+            if (mb_strlen($message) < 20) {
+                $this->reject_public_submission(
+                    $departments,
+                    'Please provide a more complete message.'
+                );
+            }
+
+            if (preg_match('/[A-Za-z]{2,}/', $message) !== 1) {
+                $this->reject_public_submission(
+                    $departments,
+                    'Please provide a valid message.'
+                );
             }
 
             $model->create_inquiry(
@@ -257,6 +290,30 @@ class contact extends controller
         }
 
         $this->view('admin/contact', $data);
+    }
+
+    private function contains_url(string $value): bool
+    {
+        return preg_match('~(?:https?://|www\.)~i', $value) === 1;
+    }
+
+    /**
+     * Reject a public Contact submission without storing or sending it.
+     *
+     * @param array<int, array<string, mixed>> $departments
+     */
+    private function reject_public_submission(array $departments, string $message): void
+    {
+        http_response_code(422);
+        $this->view(
+            'contact/index',
+            [
+                'available' => true,
+                'departments' => $departments,
+                'error' => $message,
+            ]
+        );
+        exit;
     }
 
     private function save_config(contact_model $model): void
