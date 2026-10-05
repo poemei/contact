@@ -5,9 +5,10 @@ declare(strict_types=1);
 /* [AI:GPT-5.6 Sol | 2026-10-05 UTC] */
 
 /**
- * Contact module model.
+ * Contact Model
  *
- * Implements the canonical ChAoS MVC module-owned schema and data lifecycle.
+ * Canonical ChAoS MVC module model for Contact-owned schema lifecycle,
+ * data lifecycle, and Contact operations.
  */
 final class contact_model extends model
 {
@@ -42,39 +43,20 @@ final class contact_model extends model
 
     public function databaseState(): string
     {
-        $legacyTables = [
-            self::CONTACTS_TABLE,
-            self::DEPARTMENTS_TABLE,
-            self::CONFIG_TABLE,
-        ];
-
-        $existingLegacyTables = 0;
-
-        foreach ($legacyTables as $table) {
-            if ($this->tableExists($table)) {
-                $existingLegacyTables++;
-            }
-        }
-
-        if ($existingLegacyTables === 0 && !$this->tableExists(self::STATE_TABLE)) {
+        if (!$this->tableExists(self::CONTACTS_TABLE)) {
             return 'missing';
         }
 
-        if ($existingLegacyTables !== count($legacyTables)) {
-            return 'invalid';
-        }
-
-        if (!$this->currentDataTablesValid()) {
-            return 'invalid';
-        }
-
-        // Existing pre-state-table Contact installations are a supported
-        // migration source. Their validated 1.3.1 schema can be advanced
-        // deterministically to the current canonical lifecycle.
         if (!$this->tableExists(self::STATE_TABLE)) {
-            return $this->patchFile('1.3.1', $this->targetVersion()) !== null
+            return $this->legacySchemaVersion() !== null
                 ? 'update'
                 : 'invalid';
+        }
+
+        foreach (self::TABLES as $table) {
+            if (!$this->tableExists($table)) {
+                return 'invalid';
+            }
         }
 
         $current = $this->schemaVersion();
@@ -88,7 +70,7 @@ final class contact_model extends model
             return 'current';
         }
 
-        return $this->patchFile($current, $target) !== null
+        return $this->migrationPath($current, $target) !== []
             ? 'update'
             : 'invalid';
     }
@@ -120,23 +102,29 @@ final class contact_model extends model
 
         $current = $this->schemaVersion();
 
-        // Contact releases through 1.3.3 predate the canonical state table.
-        // A validated legacy installation is therefore deterministically
-        // identified as schema 1.3.1, the last schema-changing release.
-        if ($current === null && $this->currentDataTablesValid()) {
-            $current = '1.3.1';
+        if ($current === null) {
+            $current = $this->legacySchemaVersion();
         }
 
         $target = $this->targetVersion();
-        $patch = $current === null ? null : $this->patchFile($current, $target);
 
-        if ($patch === null) {
+        if ($current === null || $target === '') {
+            throw new RuntimeException(
+                'Contact could not determine a supported schema migration source.'
+            );
+        }
+
+        $path = $this->migrationPath($current, $target);
+
+        if ($path === []) {
             throw new RuntimeException(
                 'No valid Contact schema migration path exists.'
             );
         }
 
-        $this->executeSqlFile($patch);
+        foreach ($path as $patch) {
+            $this->executeSqlFile($patch);
+        }
 
         if ($this->databaseState() !== 'current') {
             throw new RuntimeException(
@@ -146,7 +134,7 @@ final class contact_model extends model
     }
 
     /**
-     * Delete mutable Contact inquiry data while preserving schema,
+     * Delete operational inquiry records while preserving Contact schema,
      * department routing, and acknowledgement configuration.
      */
     public function deleteData(): void
@@ -336,20 +324,87 @@ final class contact_model extends model
      * -----------------------------------------------------------------
      */
 
-    private function currentDataTablesValid(): bool
+    /**
+     * Deterministically identify supported Contact schemas that predate
+     * contact_schema. These signatures come from Contact's packaged schema
+     * and exact historical migration files.
+     */
+    private function legacySchemaVersion(): ?string
     {
-        return $this->tableHasColumns(self::CONTACTS_TABLE, [
-            'id', 'name', 'email', 'department', 'subject', 'message',
-            'min_level', 'reply_content', 'status', 'created_at', 'updated_at',
-        ])
-            && $this->tableHasColumns(self::DEPARTMENTS_TABLE, [
-                'id', 'slug', 'name', 'email_address', 'active', 'sort_order',
-                'created_at', 'updated_at',
-            ])
-            && $this->tableHasColumns(self::CONFIG_TABLE, [
-                'id', 'confirmation_subject', 'confirmation_message',
-                'created_at', 'updated_at',
-            ]);
+        if (!$this->tableExists(self::CONTACTS_TABLE)) {
+            return null;
+        }
+
+        if (!$this->tableExists(self::DEPARTMENTS_TABLE)) {
+            return '1.1.0';
+        }
+
+        if (!$this->columnExists(self::DEPARTMENTS_TABLE, 'email_address')) {
+            return '1.2.0';
+        }
+
+        if (!$this->tableExists(self::CONFIG_TABLE)) {
+            return null;
+        }
+
+        if (
+            $this->columnExists(self::CONFIG_TABLE, 'sender_name')
+            && $this->columnExists(self::CONFIG_TABLE, 'sender_email')
+        ) {
+            return '1.3.0';
+        }
+
+        if (
+            !$this->columnExists(self::CONFIG_TABLE, 'sender_name')
+            && !$this->columnExists(self::CONFIG_TABLE, 'sender_email')
+            && $this->columnExists(self::CONFIG_TABLE, 'confirmation_subject')
+            && $this->columnExists(self::CONFIG_TABLE, 'confirmation_message')
+        ) {
+            return '1.3.1';
+        }
+
+        return null;
+    }
+
+    private function migrationPath(string $current, string $target): array
+    {
+        if (!$this->validVersion($current) || !$this->validVersion($target)) {
+            return [];
+        }
+
+        if ($current === $target) {
+            return [];
+        }
+
+        $transitions = [
+            '1.1.0' => '1.2.0',
+            '1.2.0' => '1.3.0',
+            '1.3.0' => '1.3.1',
+            '1.3.1' => '1.4.0',
+        ];
+
+        $path = [];
+        $version = $current;
+        $visited = [];
+
+        while ($version !== $target) {
+            if (isset($visited[$version]) || !isset($transitions[$version])) {
+                return [];
+            }
+
+            $visited[$version] = true;
+            $next = $transitions[$version];
+            $patch = $this->patchFile($version, $next);
+
+            if ($patch === null) {
+                return [];
+            }
+
+            $path[] = $patch;
+            $version = $next;
+        }
+
+        return $path;
     }
 
     private function schemaVersion(): ?string
@@ -404,7 +459,10 @@ final class contact_model extends model
         }
 
         $file = __DIR__ . '/../sql/patches/' . $current . '-to-' . $target . '.sql';
-        return is_file($file) && !is_link($file) ? $file : null;
+
+        return is_file($file) && !is_link($file)
+            ? $file
+            : null;
     }
 
     private function tableExists(string $table): bool
@@ -418,33 +476,24 @@ final class contact_model extends model
         return (int) ($row['table_count'] ?? 0) === 1;
     }
 
-    private function tableHasColumns(string $table, array $requiredColumns): bool
+    private function columnExists(string $table, string $column): bool
     {
         if (!$this->tableExists($table)) {
             return false;
         }
 
-        $rows = $this->fetchAll(
-            'SELECT `column_name` FROM `information_schema`.`columns` '
-            . 'WHERE `table_schema` = DATABASE() AND `table_name` = :table_name',
-            ['table_name' => $table]
+        $row = $this->fetch(
+            'SELECT COUNT(*) AS `column_count` FROM `information_schema`.`columns` '
+            . 'WHERE `table_schema` = DATABASE() '
+            . 'AND `table_name` = :table_name '
+            . 'AND `column_name` = :column_name',
+            [
+                'table_name' => $table,
+                'column_name' => $column,
+            ]
         );
 
-        $columns = [];
-        foreach ($rows as $row) {
-            $column = strtolower((string) ($row['column_name'] ?? ''));
-            if ($column !== '') {
-                $columns[] = $column;
-            }
-        }
-
-        foreach ($requiredColumns as $requiredColumn) {
-            if (!in_array(strtolower((string) $requiredColumn), $columns, true)) {
-                return false;
-            }
-        }
-
-        return true;
+        return (int) ($row['column_count'] ?? 0) === 1;
     }
 
     private function executeSqlFile(string $file): void
@@ -454,6 +503,7 @@ final class contact_model extends model
         }
 
         $sql = file_get_contents($file);
+
         if (!is_string($sql) || trim($sql) === '') {
             throw new RuntimeException('Contact SQL file could not be read.');
         }
@@ -467,6 +517,7 @@ final class contact_model extends model
 
         foreach ($statements as $statement) {
             $statement = trim($statement);
+
             if ($statement !== '') {
                 $this->query($statement);
             }
