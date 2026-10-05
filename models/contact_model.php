@@ -2,118 +2,143 @@
 
 declare(strict_types=1);
 
-/* [AI:GPT-5.6 Sol | 2026-09-06 01:40:00 UTC] */
-/* [AI:GPT-5.6 Sol | 2026-09-06 01:00:00 UTC] */
+/* [AI:GPT-5.6 Sol | 2026-10-05 UTC] */
 
 /**
  * Contact module model.
+ *
+ * Implements the canonical ChAoS MVC module-owned schema and data lifecycle.
  */
-class contact_model extends model
+final class contact_model extends model
 {
+    private const TABLES = [
+        'contact_schema',
+        'contacts',
+        'contact_departments',
+        'contact_config',
+    ];
+
+    private const STATE_TABLE = 'contact_schema';
     private const CONTACTS_TABLE = 'contacts';
     private const DEPARTMENTS_TABLE = 'contact_departments';
     private const CONFIG_TABLE = 'contact_config';
 
-    /**
-     * Determine the module database lifecycle state.
-     *
-     * @return string missing|update|current|error
-     */
-    public function database_state(): string
+    public function getModuleInformation(): array
     {
-        if (!$this->table_exists(self::CONTACTS_TABLE)) {
+        return [
+            'name' => 'Contact',
+            'slug' => 'contact',
+            'version' => $this->moduleVersion(),
+            'schema_version' => $this->targetVersion(),
+            'tables' => self::TABLES,
+        ];
+    }
+
+    /*
+     * -----------------------------------------------------------------
+     * Module / Data Lifecycle
+     * -----------------------------------------------------------------
+     */
+
+    public function databaseState(): string
+    {
+        $legacyTables = [
+            self::CONTACTS_TABLE,
+            self::DEPARTMENTS_TABLE,
+            self::CONFIG_TABLE,
+        ];
+
+        $existingLegacyTables = 0;
+
+        foreach ($legacyTables as $table) {
+            if ($this->tableExists($table)) {
+                $existingLegacyTables++;
+            }
+        }
+
+        if ($existingLegacyTables === 0 && !$this->tableExists(self::STATE_TABLE)) {
             return 'missing';
         }
 
-        if (!$this->contacts_schema_valid()) {
-            return 'error';
+        if ($existingLegacyTables !== count($legacyTables)) {
+            return 'invalid';
         }
 
-        if (!$this->table_exists(self::DEPARTMENTS_TABLE)) {
-            return 'update';
+        if (!$this->currentDataTablesValid()) {
+            return 'invalid';
         }
 
-        if (!$this->departments_base_schema_valid()) {
-            return 'error';
+        // Existing pre-state-table Contact installations are a supported
+        // migration source. Their validated 1.3.1 schema can be advanced
+        // deterministically to the current canonical lifecycle.
+        if (!$this->tableExists(self::STATE_TABLE)) {
+            return $this->patchFile('1.3.1', $this->targetVersion()) !== null
+                ? 'update'
+                : 'invalid';
         }
 
-        $hasDepartmentEmail = $this->departments_schema_valid();
-        $hasConfigTable = $this->table_exists(self::CONFIG_TABLE);
+        $current = $this->schemaVersion();
+        $target = $this->targetVersion();
 
-        if (!$hasDepartmentEmail && !$hasConfigTable) {
-            return 'update';
+        if ($current === null || $target === '') {
+            return 'invalid';
         }
 
-        if ($hasDepartmentEmail !== $hasConfigTable) {
-            return 'error';
+        if ($current === $target) {
+            return 'current';
         }
 
-        if (!$this->config_base_schema_valid()) {
-            return 'error';
-        }
-
-        if ($this->config_has_partial_legacy_sender_columns()) {
-            return 'error';
-        }
-
-        if ($this->config_has_legacy_sender_columns()) {
-            return 'update';
-        }
-
-        return 'current';
+        return $this->patchFile($current, $target) !== null
+            ? 'update'
+            : 'invalid';
     }
 
-    /**
-     * Install the current schema for a fresh module installation.
-     */
-    public function install_schema(): void
+    public function installSchema(): void
     {
-        if ($this->database_state() !== 'missing') {
+        if ($this->databaseState() !== 'missing') {
             throw new RuntimeException(
                 'Contact schema installation is not available in the current database state.'
             );
         }
 
-        $this->execute_sql_file(__DIR__ . '/../sql/schema.sql');
+        $this->executeSqlFile(__DIR__ . '/../sql/schema.sql');
 
-        if ($this->database_state() !== 'current') {
+        if ($this->databaseState() !== 'current') {
             throw new RuntimeException(
                 'Contact schema installation did not produce the expected current schema.'
             );
         }
     }
 
-    /**
-     * Apply the required packaged migration path to the current schema.
-     */
-    public function update_schema(): void
+    public function updateSchema(): void
     {
-        if ($this->database_state() !== 'update') {
+        if ($this->databaseState() !== 'update') {
             throw new RuntimeException(
                 'Contact schema update is not available in the current database state.'
             );
         }
 
-        if (!$this->table_exists(self::DEPARTMENTS_TABLE)) {
-            $this->execute_sql_file(__DIR__ . '/../sql/patches/1.1.0-to-1.2.0.sql');
+        $current = $this->schemaVersion();
+
+        // Contact releases through 1.3.3 predate the canonical state table.
+        // A validated legacy installation is therefore deterministically
+        // identified as schema 1.3.1, the last schema-changing release.
+        if ($current === null && $this->currentDataTablesValid()) {
+            $current = '1.3.1';
         }
 
-        if (
-            !$this->departments_schema_valid()
-            && !$this->table_exists(self::CONFIG_TABLE)
-        ) {
-            $this->execute_sql_file(__DIR__ . '/../sql/patches/1.2.0-to-1.3.0.sql');
+        $target = $this->targetVersion();
+        $patch = $current === null ? null : $this->patchFile($current, $target);
+
+        if ($patch === null) {
+            throw new RuntimeException(
+                'No valid Contact schema migration path exists.'
+            );
         }
 
-        if (
-            $this->table_exists(self::CONFIG_TABLE)
-            && $this->config_base_schema_valid()
-            && $this->config_has_legacy_sender_columns()
-        ) {
-            $this->execute_sql_file(__DIR__ . '/../sql/patches/1.3.0-to-1.3.1.sql');
-        }
+        $this->executeSqlFile($patch);
 
-        if ($this->database_state() !== 'current') {
+        if ($this->databaseState() !== 'current') {
             throw new RuntimeException(
                 'Contact schema update did not produce the expected current schema.'
             );
@@ -121,63 +146,51 @@ class contact_model extends model
     }
 
     /**
-     * Remove operational Contact records while preserving schema and configuration.
+     * Delete mutable Contact inquiry data while preserving schema,
+     * department routing, and acknowledgement configuration.
      */
-    public function delete_data(): void
+    public function deleteData(): void
     {
-        if ($this->database_state() !== 'current') {
+        if ($this->databaseState() !== 'current') {
             throw new RuntimeException(
                 'Contact data cannot be deleted until the database schema is current.'
             );
         }
 
-        $this->query('DELETE FROM ' . self::CONTACTS_TABLE);
+        $this->query('DELETE FROM `' . self::CONTACTS_TABLE . '`');
     }
 
-    /**
-     * Save a public contact inquiry.
-     *
-     * @param array<string, mixed> $data
+    /*
+     * -----------------------------------------------------------------
+     * Contact Operations
+     * -----------------------------------------------------------------
      */
-    public function create_inquiry(array $data): mixed
+
+    public function createInquiry(array $data): mixed
     {
         return $this->insert(self::CONTACTS_TABLE, $data);
     }
 
-    /**
-     * Return inquiries visible to the supplied access level.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function get_visible_inquiries(int $level): array
+    public function getVisibleInquiries(int $level): array
     {
         return $this->fetchAll(
-            'SELECT * FROM ' . self::CONTACTS_TABLE
-            . ' WHERE min_level <= :level'
-            . ' ORDER BY min_level DESC, created_at ASC',
+            'SELECT * FROM `' . self::CONTACTS_TABLE . '` '
+            . 'WHERE `min_level` <= :level '
+            . 'ORDER BY `min_level` DESC, `created_at` ASC',
             ['level' => $level]
-        );
+        ) ?: [];
     }
 
-    /**
-     * Fetch one inquiry by ID.
-     *
-     * @return array<string, mixed>|false
-     */
-    public function get_inquiry(int $id): array|false
+    public function getInquiry(int $id): array|false
     {
         return $this->fetch(
-            'SELECT * FROM ' . self::CONTACTS_TABLE . ' WHERE id = :id LIMIT 1',
+            'SELECT * FROM `' . self::CONTACTS_TABLE . '` '
+            . 'WHERE `id` = :id LIMIT 1',
             ['id' => $id]
         );
     }
 
-    /**
-     * Update an inquiry.
-     *
-     * @param array<string, mixed> $data
-     */
-    public function update_ticket(int $id, array $data): mixed
+    public function updateTicket(int $id, array $data): mixed
     {
         return $this->update(
             self::CONTACTS_TABLE,
@@ -187,91 +200,66 @@ class contact_model extends model
         );
     }
 
-    /**
-     * Delete one inquiry.
-     */
-    public function delete_ticket(int $id): mixed
+    public function deleteTicket(int $id): mixed
     {
         return $this->query(
-            'DELETE FROM ' . self::CONTACTS_TABLE . ' WHERE id = :id',
+            'DELETE FROM `' . self::CONTACTS_TABLE . '` WHERE `id` = :id',
             ['id' => $id]
         );
     }
 
-    /**
-     * Return active, routable departments for the public contact form.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function get_active_departments(): array
+    public function getActiveDepartments(): array
     {
         return $this->fetchAll(
-            'SELECT id, slug, name, email_address, sort_order'
-            . ' FROM ' . self::DEPARTMENTS_TABLE
-            . ' WHERE active = 1 AND email_address IS NOT NULL AND email_address <> \'\''
-            . ' ORDER BY sort_order ASC, name ASC'
-        );
+            'SELECT `id`, `slug`, `name`, `email_address`, `sort_order` '
+            . 'FROM `' . self::DEPARTMENTS_TABLE . '` '
+            . 'WHERE `active` = 1 '
+            . 'AND `email_address` IS NOT NULL '
+            . 'AND `email_address` <> \'\' '
+            . 'ORDER BY `sort_order` ASC, `name` ASC'
+        ) ?: [];
     }
 
-    /**
-     * Return all departments for Admin management.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function get_departments(): array
+    public function getDepartments(): array
     {
         return $this->fetchAll(
-            'SELECT id, slug, name, email_address, active, sort_order, created_at, updated_at'
-            . ' FROM ' . self::DEPARTMENTS_TABLE
-            . ' ORDER BY sort_order ASC, name ASC'
-        );
+            'SELECT `id`, `slug`, `name`, `email_address`, `active`, '
+            . '`sort_order`, `created_at`, `updated_at` '
+            . 'FROM `' . self::DEPARTMENTS_TABLE . '` '
+            . 'ORDER BY `sort_order` ASC, `name` ASC'
+        ) ?: [];
     }
 
-    /**
-     * Fetch one active public department by slug.
-     *
-     * @return array<string, mixed>|false
-     */
-    public function get_active_department(string $slug): array|false
+    public function getActiveDepartment(string $slug): array|false
     {
         return $this->fetch(
-            'SELECT id, slug, name, email_address'
-            . ' FROM ' . self::DEPARTMENTS_TABLE
-            . ' WHERE slug = :slug'
-            . ' AND active = 1'
-            . ' AND email_address IS NOT NULL'
-            . ' AND email_address <> \'\''
-            . ' LIMIT 1',
+            'SELECT `id`, `slug`, `name`, `email_address` '
+            . 'FROM `' . self::DEPARTMENTS_TABLE . '` '
+            . 'WHERE `slug` = :slug '
+            . 'AND `active` = 1 '
+            . 'AND `email_address` IS NOT NULL '
+            . 'AND `email_address` <> \'\' LIMIT 1',
             ['slug' => $slug]
         );
     }
 
-    /**
-     * Create a department.
-     */
-    public function create_department(
+    public function createDepartment(
         string $slug,
         string $name,
         string $emailAddress,
         bool $active,
         int $sortOrder
     ): mixed {
-        return $this->insert(
-            self::DEPARTMENTS_TABLE,
-            [
-                'slug' => $slug,
-                'name' => $name,
-                'email_address' => $emailAddress,
-                'active' => $active ? 1 : 0,
-                'sort_order' => $sortOrder,
-            ]
-        );
+        return $this->insert(self::DEPARTMENTS_TABLE, [
+            'slug' => $slug,
+            'name' => $name,
+            'email_address' => $emailAddress,
+            'active' => $active ? 1 : 0,
+            'sort_order' => $sortOrder,
+        ]);
     }
 
-    /**
-     * Update a department.
-     */
-    public function update_department(
+    public function updateDepartment(
         int $id,
         string $slug,
         string $name,
@@ -293,46 +281,28 @@ class contact_model extends model
         );
     }
 
-    /**
-     * Delete a department.
-     */
-    public function delete_department(int $id): mixed
+    public function deleteDepartment(int $id): mixed
     {
         return $this->query(
-            'DELETE FROM ' . self::DEPARTMENTS_TABLE . ' WHERE id = :id',
+            'DELETE FROM `' . self::DEPARTMENTS_TABLE . '` WHERE `id` = :id',
             ['id' => $id]
         );
     }
 
-    /**
-     * Return Contact-owned end-user acknowledgement configuration.
-     *
-     * SMTP transport and sender identity belong to ChAoS MVC mailer::create().
-     *
-     * @return array<string, mixed>
-     */
-    public function get_config(): array
+    public function getConfig(): array
     {
         $row = $this->fetch(
-            'SELECT confirmation_subject, confirmation_message'
-            . ' FROM ' . self::CONFIG_TABLE
-            . ' WHERE id = 1 LIMIT 1'
+            'SELECT `confirmation_subject`, `confirmation_message` '
+            . 'FROM `' . self::CONFIG_TABLE . '` WHERE `id` = 1 LIMIT 1'
         );
 
-        if (!is_array($row)) {
-            return [
-                'confirmation_subject' => '',
-                'confirmation_message' => '',
-            ];
-        }
-
-        return $row;
+        return is_array($row) ? $row : [
+            'confirmation_subject' => '',
+            'confirmation_message' => '',
+        ];
     }
 
-    /**
-     * Save Contact-owned end-user acknowledgement configuration.
-     */
-    public function save_config(
+    public function saveConfig(
         string $confirmationSubject,
         string $confirmationMessage
     ): mixed {
@@ -342,7 +312,7 @@ class contact_model extends model
         ];
 
         $existing = $this->fetch(
-            'SELECT id FROM ' . self::CONFIG_TABLE . ' WHERE id = 1 LIMIT 1'
+            'SELECT `id` FROM `' . self::CONFIG_TABLE . '` WHERE `id` = 1 LIMIT 1'
         );
 
         if (!is_array($existing)) {
@@ -360,117 +330,116 @@ class contact_model extends model
         );
     }
 
-    private function contacts_schema_valid(): bool
-    {
-        $required = [
-            'id',
-            'name',
-            'email',
-            'department',
-            'subject',
-            'message',
-            'min_level',
-            'reply_content',
-            'status',
-            'created_at',
-            'updated_at',
-        ];
+    /*
+     * -----------------------------------------------------------------
+     * Lifecycle Helpers
+     * -----------------------------------------------------------------
+     */
 
-        return $this->table_has_columns(self::CONTACTS_TABLE, $required);
+    private function currentDataTablesValid(): bool
+    {
+        return $this->tableHasColumns(self::CONTACTS_TABLE, [
+            'id', 'name', 'email', 'department', 'subject', 'message',
+            'min_level', 'reply_content', 'status', 'created_at', 'updated_at',
+        ])
+            && $this->tableHasColumns(self::DEPARTMENTS_TABLE, [
+                'id', 'slug', 'name', 'email_address', 'active', 'sort_order',
+                'created_at', 'updated_at',
+            ])
+            && $this->tableHasColumns(self::CONFIG_TABLE, [
+                'id', 'confirmation_subject', 'confirmation_message',
+                'created_at', 'updated_at',
+            ]);
     }
 
-    private function departments_base_schema_valid(): bool
+    private function schemaVersion(): ?string
     {
-        $required = [
-            'id',
-            'slug',
-            'name',
-            'active',
-            'sort_order',
-            'created_at',
-            'updated_at',
-        ];
+        if (!$this->tableExists(self::STATE_TABLE)) {
+            return null;
+        }
 
-        return $this->table_has_columns(self::DEPARTMENTS_TABLE, $required);
-    }
-
-    private function departments_schema_valid(): bool
-    {
-        return $this->departments_base_schema_valid()
-            && $this->table_has_columns(self::DEPARTMENTS_TABLE, ['email_address']);
-    }
-
-    private function config_base_schema_valid(): bool
-    {
-        $required = [
-            'id',
-            'confirmation_subject',
-            'confirmation_message',
-            'created_at',
-            'updated_at',
-        ];
-
-        return $this->table_has_columns(self::CONFIG_TABLE, $required);
-    }
-
-    private function config_has_legacy_sender_columns(): bool
-    {
-        return $this->table_has_columns(
-            self::CONFIG_TABLE,
-            ['sender_name', 'sender_email']
-        );
-    }
-
-    private function config_has_partial_legacy_sender_columns(): bool
-    {
-        $hasSenderName = $this->table_has_columns(
-            self::CONFIG_TABLE,
-            ['sender_name']
-        );
-        $hasSenderEmail = $this->table_has_columns(
-            self::CONFIG_TABLE,
-            ['sender_email']
+        $row = $this->fetch(
+            'SELECT `schema_version` FROM `' . self::STATE_TABLE . '` '
+            . 'WHERE `id` = 1 LIMIT 1'
         );
 
-        return $hasSenderName !== $hasSenderEmail;
+        $version = is_array($row)
+            ? trim((string) ($row['schema_version'] ?? ''))
+            : '';
+
+        return $this->validVersion($version) ? $version : null;
     }
 
-    private function table_exists(string $table): bool
+    private function moduleMetadata(): array
+    {
+        $raw = file_get_contents(__DIR__ . '/../module.json');
+        $metadata = is_string($raw) ? json_decode($raw, true) : null;
+
+        return is_array($metadata) ? $metadata : [];
+    }
+
+    private function moduleVersion(): string
+    {
+        return trim((string) ($this->moduleMetadata()['version'] ?? ''));
+    }
+
+    private function targetVersion(): string
+    {
+        $version = trim((string) ($this->moduleMetadata()['schema_version'] ?? ''));
+        return $this->validVersion($version) ? $version : '';
+    }
+
+    private function validVersion(string $version): bool
+    {
+        return preg_match(
+            '/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/',
+            $version
+        ) === 1;
+    }
+
+    private function patchFile(string $current, string $target): ?string
+    {
+        if (!$this->validVersion($current) || !$this->validVersion($target)) {
+            return null;
+        }
+
+        $file = __DIR__ . '/../sql/patches/' . $current . '-to-' . $target . '.sql';
+        return is_file($file) && !is_link($file) ? $file : null;
+    }
+
+    private function tableExists(string $table): bool
     {
         $row = $this->fetch(
-            'SELECT COUNT(*) AS table_count'
-            . ' FROM information_schema.tables'
-            . ' WHERE table_schema = DATABASE() AND table_name = :table_name',
+            'SELECT COUNT(*) AS `table_count` FROM `information_schema`.`tables` '
+            . 'WHERE `table_schema` = DATABASE() AND `table_name` = :table_name',
             ['table_name' => $table]
         );
 
         return (int) ($row['table_count'] ?? 0) === 1;
     }
 
-    /**
-     * @param array<int, string> $requiredColumns
-     */
-    private function table_has_columns(string $table, array $requiredColumns): bool
+    private function tableHasColumns(string $table, array $requiredColumns): bool
     {
+        if (!$this->tableExists($table)) {
+            return false;
+        }
+
         $rows = $this->fetchAll(
-            'SELECT column_name'
-            . ' FROM information_schema.columns'
-            . ' WHERE table_schema = DATABASE() AND table_name = :table_name',
+            'SELECT `column_name` FROM `information_schema`.`columns` '
+            . 'WHERE `table_schema` = DATABASE() AND `table_name` = :table_name',
             ['table_name' => $table]
         );
 
         $columns = [];
-
         foreach ($rows as $row) {
             $column = strtolower((string) ($row['column_name'] ?? ''));
-
             if ($column !== '') {
                 $columns[] = $column;
             }
         }
 
         foreach ($requiredColumns as $requiredColumn) {
-            if (!in_array(strtolower($requiredColumn), $columns, true)) {
+            if (!in_array(strtolower((string) $requiredColumn), $columns, true)) {
                 return false;
             }
         }
@@ -478,24 +447,26 @@ class contact_model extends model
         return true;
     }
 
-    private function execute_sql_file(string $path): void
+    private function executeSqlFile(string $file): void
     {
-        if (!is_file($path) || !is_readable($path)) {
-            throw new RuntimeException('Required Contact SQL file is unavailable: ' . $path);
+        if (!is_file($file) || is_link($file)) {
+            throw new RuntimeException('Contact SQL file could not be read.');
         }
 
-        $sql = file_get_contents($path);
-
-        if ($sql === false || trim($sql) === '') {
-            throw new RuntimeException('Required Contact SQL file is empty: ' . $path);
+        $sql = file_get_contents($file);
+        if (!is_string($sql) || trim($sql) === '') {
+            throw new RuntimeException('Contact SQL file could not be read.');
         }
 
         $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? $sql;
-        $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql) ?: [];
+        $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql);
+
+        if (!is_array($statements)) {
+            throw new RuntimeException('Contact SQL file could not be parsed.');
+        }
 
         foreach ($statements as $statement) {
             $statement = trim($statement);
-
             if ($statement !== '') {
                 $this->query($statement);
             }
@@ -503,5 +474,4 @@ class contact_model extends model
     }
 }
 
-/* [End AI:GPT-5.6 Sol] */
 /* [End AI:GPT-5.6 Sol] */
