@@ -1,5 +1,25 @@
 # Contact MVC Changelog
 
+## 1.4.0 - 2026-10-05
+
+### Changed
+
+- Aligned Contact with the current canonical ChAoS MVC Example module lifecycle pattern.
+- Controller and model are now final classes and use the canonical `index(array $params = [])`, `admin(array $params = [])`, `databaseState()`, `installSchema()`, `updateSchema()`, and `deleteData()` conventions.
+- Added independent `schema_version` metadata so code-only module releases no longer imply a database schema change.
+- Added module-owned `contact_schema` state table and declared it in `database_tables`.
+- Added canonical `views/index.php` and `views/admin/index.php` entry points.
+- Preserved Contact inquiries, department routing, acknowledgement configuration, Admin replies, mail behavior, and the 1.3.3 deterministic anti-spam controls.
+
+### Lifecycle
+
+- Fresh installations create schema version `1.4.0` through `sql/schema.sql`.
+- Existing validated pre-state-table Contact installations are deterministically recognized as the 1.3.1 schema baseline and receive **Update SQL** rather than being treated as an unsupported schema.
+- Added `sql/patches/1.3.1-to-1.4.0.sql` to create and initialize the canonical schema-state table without deleting existing Contact data.
+- `missing` presents **Install SQL**, `update` presents **Update SQL**, `current` enables normal Contact operations, and invalid/incomplete schemas refuse normal database operations.
+- **Delete Data** removes mutable inquiry records while preserving schema, departments, and acknowledgement configuration.
+- **Nuke** remains Core-owned.
+
 ## 1.3.3 - 2026-10-05
 
 ### Added
@@ -13,7 +33,7 @@
 
 ### Behavior
 
-- Anti-spam validation occurs before `create_inquiry()`, preventing rejected submissions from entering Contact storage or triggering department notifications or end-user acknowledgement mail.
+- Anti-spam validation occurs before inquiry creation, preventing rejected submissions from entering Contact storage or triggering department notifications or end-user acknowledgement mail.
 - Existing Contact Admin, department routing, acknowledgement, inquiry management, database lifecycle, and Core-owned Nuke behavior are unchanged.
 - This is a code-only patch release; no database migration is required.
 
