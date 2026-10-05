@@ -1,5 +1,5 @@
 <?php
-/* [AI:GPT-5.6 Sol | 2026-09-06 01:20:00 UTC] */
+/* [AI:GPT-5.6 Sol | 2026-10-05 UTC] */
 require APPROOT . '/views/inc/head.php';
 ?>
 <div class="container my-5">
@@ -22,6 +22,11 @@ require APPROOT . '/views/inc/head.php';
 
         <form method="post" class="card border-secondary p-4">
             <?= $this->csrf_field() ?>
+
+            <div aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;">
+                <label for="contact-website">Website</label>
+                <input id="contact-website" type="text" name="website" tabindex="-1" autocomplete="off">
+            </div>
 
             <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 20px;">
                 <div class="mb-3">
@@ -55,6 +60,7 @@ require APPROOT . '/views/inc/head.php';
             <div class="mb-3">
                 <label for="contact-message">Message</label>
                 <textarea id="contact-message" name="message" class="form-control border-secondary" rows="6" required></textarea>
+                <small>Links are not permitted in contact submissions.</small>
             </div>
 
             <button class="btn btn-outline-primary">Send Inquiry</button>
