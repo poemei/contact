@@ -1,5 +1,22 @@
 # Contact MVC Changelog
 
+## 1.3.3 - 2026-10-05
+
+### Added
+
+- Added a deterministic honeypot field to the public Contact form.
+- Honeypot submissions are silently discarded before inquiry storage or mail delivery and receive the normal success redirect.
+- Added server-side rejection of URLs in the public name, subject, and message fields.
+- Added a 20-character minimum for public inquiry messages.
+- Added basic message-content validation requiring at least two consecutive ASCII letters.
+- Added a public notice that links are not permitted in Contact submissions.
+
+### Behavior
+
+- Anti-spam validation occurs before `create_inquiry()`, preventing rejected submissions from entering Contact storage or triggering department notifications or end-user acknowledgement mail.
+- Existing Contact Admin, department routing, acknowledgement, inquiry management, database lifecycle, and Core-owned Nuke behavior are unchanged.
+- This is a code-only patch release; no database migration is required.
+
 ## 1.3.2 - 2026-09-05
 
 ### Added
