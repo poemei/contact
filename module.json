@@ -1,0 +1,40 @@
+{
+    "name": "Contact",
+    "module": "contact",
+    "version": "1.3.2",
+    "description": "A website contact utility module that uses the Chaos MVC built-in mailer to capture and manage contacts from the domain.",
+    "update_url": "https://poemei.com/projects/modules/contact/module.json",
+    "creator": "PM",
+    "domain": "poemei.com",
+    "certified": "Yes",
+    "signing": {
+        "rsa-sha256": "RSA-SHA256",
+        "key_id": "pm-aab3866b2f02eab5",
+        "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQm9qQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FZOEFNSUlCaWdLQ0FZRUF6azFuMGNBenI3K3F2SmV2VFVmYwpIcEFpK3lVVHBsdDVPWGZ2RkJrdUFCcWx2bzVaZjZqNTBCR3VVcHZVK3hDTWFNUFhTTjhQSitLQkxOZXFZOHA5CjFhUk82V2o4QUk0YmgzbUF3aDFNL1NDcGhGb3pHUm9CbVZyWElkbzRzZTlGNDErRU9jQXFydktDWUZ3OG9vbHUKWExhZVdhUk1KKzNEWFJ0by9ucGtuaElzem8wcnNaeDJWZzUyalEza1J5OVQyKzB3Sk84eHBrRGlMeHBGUFVHZgpvTkx5Y2U4TWJMS0FPYnNwWHZUbmpYRWF6N05zb3JQN2pPekJ1dXZOM1daVE1EUC9Malg0MllmZFk5SzlQV0ZhCkk1TVZLRHBQZ1hlQjljTmVIemNXZzVubE0wN1YrZ0VFdExxdk0xa25zRVRZaTBZbDJManBtRm5pK3ZLQW8xVngKWm5LZ2hod1E0dU1RNDg1WWdQM2IxTldZOUlSVWxNVmxxNnNFNFVXbnU5aVFBdFZFeVlwYU5FcnFESkRzY2ZoZwpxMUFlWTIwTHFveFZWdXI3bDQrTG5JK3F4YUNydnJjTWlFNFc0MmdHRTBMMHRzK2Zmb2NVV1NGdmlEeHl0cENmCkVZWTdHSFhNWEQwc3I2VWxhTGhnVmhJcUlXdTFZS0l1Y3dyZHlJdThYdjhMQWdNQkFBRT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=="
+    },
+    "database_tables": [
+        "contacts",
+        "contact_departments",
+        "contact_config"
+    ],
+    "migrations": {
+        "1.1.0-to-1.2.0": "sql/patches/1.1.0-to-1.2.0.sql",
+        "1.2.0-to-1.3.0": "sql/patches/1.2.0-to-1.3.0.sql",
+        "1.3.0-to-1.3.1": "sql/patches/1.3.0-to-1.3.1.sql"
+    },
+    "routes": [
+        "index"
+    ],
+    "files": [
+        "controllers/contact.php",
+        "models/contact_model.php",
+        "views/contact/index.php",
+        "views/admin/contact.php",
+        "sql/schema.sql",
+        "sql/patches/1.1.0-to-1.2.0.sql",
+        "sql/patches/1.2.0-to-1.3.0.sql",
+        "sql/patches/1.3.0-to-1.3.1.sql",
+        "docs/CHANGELOG.md",
+        "README.md"
+    ]
+}
